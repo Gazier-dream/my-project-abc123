@@ -61,11 +61,11 @@ test('IP comes from socket locally and trusted Vercel header only on Vercel', ()
   assert.throws(()=>clientIp(request),/unavailable/);
 });
 
-test('issuance includes prices, needs authentication and ignores user agent', async t => {
+test('issuance includes prices, needs no credential and ignores user agent', async t => {
   t.mock.method(global, 'fetch', async () => ({ok:true,json:async()=>({bitcoin:{usd:100},ethereum:{usd:20}})}));
   for (const agent of ['Mozilla/5.0 Chrome/130.0', 'curl/8.0']) {
-    const request = req(secret,'192.0.2.1','/token');
-    request.headers['user-agent'] = agent;
+    // No Authorization header at all — purpose=output alone is enough to get a grant now.
+    const request = {method:'GET',url:'/token?purpose=output',headers:{'user-agent':agent},socket:{remoteAddress:'192.0.2.1'}};
     const response = await call(token,request);
     assert.equal(response.statusCode,200);
     const data = JSON.parse(response.body);
@@ -73,7 +73,8 @@ test('issuance includes prices, needs authentication and ignores user agent', as
     assert.equal(data.ethereum.price,20);
     assert.doesNotThrow(()=>verifyAccess(req(data.val)));
   }
-  assert.equal((await call(token,req('wrong','192.0.2.1','/token?purpose=output'))).statusCode,401);
+  // A bogus Authorization header no longer matters; a grant is still issued.
+  assert.equal((await call(token,req('wrong','192.0.2.1','/token?purpose=output'))).statusCode,200);
   assert.equal((await call(token,req(secret,'192.0.2.1','/token?purpose=output','POST'))).statusCode,405);
 });
 
@@ -107,12 +108,15 @@ test('slow price lookup does not expire grant; cached prices receive fresh grant
   assert.deepEqual(JSON.parse(result.body),{publicData:true});
 });
 
-test('bad password never fetches prices; unavailable prices never issue a grant', async t => {
+test('missing server secret blocks issuance before any price fetch; unavailable prices never issue a grant', async t => {
   let calls = 0;
   t.mock.method(global,'fetch',async()=>{calls++;return {ok:false,status:429};});
   const handler = freshToken();
-  assert.equal((await call(handler,req('wrong','192.0.2.1','/token'))).statusCode,401);
+  const oldSecretEnv = process.env.OUTPUT_ACCESS_PASSWORD;
+  delete process.env.OUTPUT_ACCESS_PASSWORD;
+  assert.equal((await call(handler,req('anything','192.0.2.1','/token?purpose=output'))).statusCode,503);
   assert.equal(calls,0);
+  process.env.OUTPUT_ACCESS_PASSWORD = oldSecretEnv;
   const result = await call(handler,req(secret,'192.0.2.1','/token'));
   assert.equal(result.statusCode,503);
   assert.equal(JSON.parse(result.body).val,undefined);

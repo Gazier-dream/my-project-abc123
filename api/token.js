@@ -22,7 +22,9 @@ module.exports = async function token(req, res) {
     return res.end(req.method === 'HEAD' ? '' : JSON.stringify({ error: 'Method not allowed' }));
   }
   try {
-    // Authenticate before making any provider request.
+    // No password/credential check anymore: any caller can request a
+    // grant. This just confirms the server has a secret configured (to
+    // encrypt the grant with) and that a client IP is available to bind it.
     authenticateAccess(req);
     const data = await tokenData();
     if (data.retryAfterSeconds) res.setHeader('Retry-After', String(data.retryAfterSeconds));

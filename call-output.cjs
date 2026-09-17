@@ -1,15 +1,18 @@
 // Run: node --env-file=.env call-output.cjs
 // Fetches data and prints it only; received content is never executed.
+// /token no longer requires a password/credential — this script just asks
+// for a grant via ?purpose=output and immediately spends the resulting
+// `val` on /output.
 async function main() {
   const base = process.env.API_BASE_URL;
-  const password = process.env.OUTPUT_ACCESS_PASSWORD;
-  if (!base || !password) throw new Error('Set API_BASE_URL and OUTPUT_ACCESS_PASSWORD.');
+  if (!base) throw new Error('Set API_BASE_URL.');
   const url = new URL(base);
   if (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname))) {
     throw new Error('Use HTTPS, or HTTP on localhost for local development.');
   }
-  const response = await fetch(new URL('/token', url), {
-    headers: { Authorization: 'Bearer ' + password },
+  const tokenUrl = new URL('/token', url);
+  tokenUrl.searchParams.set('purpose', 'output');
+  const response = await fetch(tokenUrl, {
     signal: AbortSignal.timeout(25000),
     redirect: 'error'
   });
