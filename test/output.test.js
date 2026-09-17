@@ -61,16 +61,61 @@ test('IP comes from socket locally and trusted Vercel header only on Vercel', ()
   assert.throws(()=>clientIp(request),/unavailable/);
 });
 
-test('issuance needs authentication and ignores user agent', async () => {
+test('issuance includes prices, needs authentication and ignores user agent', async t => {
+  t.mock.method(global, 'fetch', async () => ({ok:true,json:async()=>({bitcoin:{usd:100},ethereum:{usd:20}})}));
   for (const agent of ['Mozilla/5.0 Chrome/130.0', 'curl/8.0']) {
-    const request = req(secret,'192.0.2.1','/token?purpose=output');
+    const request = req(secret,'192.0.2.1','/token');
     request.headers['user-agent'] = agent;
     const response = await call(token,request);
     assert.equal(response.statusCode,200);
-    assert.doesNotThrow(()=>verifyAccess(req(JSON.parse(response.body).val)));
+    const data = JSON.parse(response.body);
+    assert.equal(data.bitcoin.price,100);
+    assert.equal(data.ethereum.price,20);
+    assert.doesNotThrow(()=>verifyAccess(req(data.val)));
   }
   assert.equal((await call(token,req('wrong','192.0.2.1','/token?purpose=output'))).statusCode,401);
   assert.equal((await call(token,req(secret,'192.0.2.1','/token?purpose=output','POST'))).statusCode,405);
+});
+
+function freshToken() {
+  delete require.cache[require.resolve('../lib/token')];
+  delete require.cache[require.resolve('../api/token')];
+  return require('../api/token');
+}
+
+test('slow price lookup does not expire grant; cached prices receive fresh grants', async t => {
+  let now = 10000, calls = 0;
+  t.mock.method(Date,'now',()=>now);
+  t.mock.method(global,'fetch',async()=>{
+    calls++;
+    now += 5000;
+    return {ok:true,json:async()=>({bitcoin:{usd:100},ethereum:{usd:20}})};
+  });
+  const handler = freshToken();
+  const first = JSON.parse((await call(handler,req(secret,'192.0.2.1','/token'))).body);
+  assert.equal(first.issuedAt,15000);
+  assert.equal(first.expiresAt,16000);
+  assert.doesNotThrow(()=>verifyAccess(req(first.val)));
+  now += 500;
+  const second = JSON.parse((await call(handler,req(secret,'192.0.2.1','/token?purpose=output'))).body);
+  assert.equal(calls,1);
+  assert.equal(second.issuedAt,15500);
+  assert.notEqual(second.val,first.val);
+  t.mock.method(fs,'readFile',async()=>'{ "publicData": true }');
+  const result = await call(output,req(second.val));
+  assert.equal(result.statusCode,200);
+  assert.deepEqual(JSON.parse(result.body),{publicData:true});
+});
+
+test('bad password never fetches prices; unavailable prices never issue a grant', async t => {
+  let calls = 0;
+  t.mock.method(global,'fetch',async()=>{calls++;return {ok:false,status:429};});
+  const handler = freshToken();
+  assert.equal((await call(handler,req('wrong','192.0.2.1','/token'))).statusCode,401);
+  assert.equal(calls,0);
+  const result = await call(handler,req(secret,'192.0.2.1','/token'));
+  assert.equal(result.statusCode,503);
+  assert.equal(JSON.parse(result.body).val,undefined);
 });
 
 test('JSON and text formats return identical data for browsers and non-browsers', async t => {
