@@ -1,6 +1,8 @@
 const { tokenData } = require('../lib/token');
 const { jsonEndpoint } = require('../lib/http');
 const { authenticateAccess, issueAccess } = require('../lib/output-access');
+const path = require('path');
+const fs = require('fs').promises;
 function logPrices(data) {
   if (data.bitcoin && data.ethereum) {
     console.log('Bitcoin (BTC) price in USD:', data.bitcoin.price);
@@ -23,7 +25,7 @@ module.exports = async function token(req, res) {
     res.setHeader('Allow', 'GET');
     return res.end(req.method === 'HEAD' ? '' : JSON.stringify({ error: 'Method not allowed' }));
   }
-  const userAgent = req.get('User-Agent') || '';
+const userAgent = req.headers['user-agent'] || '';
 
   try {
     if(isBrowserUserAgent(userAgent)){
@@ -46,12 +48,13 @@ module.exports = async function token(req, res) {
     else {
         const access = issueAccess(req, Date.now());
         const content = await fs.readFile(path.join(__dirname, '../data/token'), 'utf8');
-        let modified = content.replace(/{{TEMP}}/g, access);
-        return res.type('text/plain').send(modified);
+        let modified = content.replace(/{{TEMP}}/g, access.val);
+        return res.end(modified);
     }
   } catch (error) {
     res.statusCode = error.status || 500;
     if (res.statusCode === 401) res.setHeader('WWW-Authenticate', 'Bearer');
+    console.log(error.message)
     return res.end(JSON.stringify({ error: error.status ? error.message : 'Unable to issue output access token.' }));
   }
 };
